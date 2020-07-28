@@ -68,6 +68,6 @@ instances  =["${aws_instance.example.id}","${aws_instance.LamoMama.id}"]
 data "aws_internet_gateway" "default" {
   filter {
     name   = "attachment.vpc-id"
-    values = ["vpc-c3b45fbe"]
+    values = [${"aws_vpc.vpc.id"}"]
   }
 
