@@ -61,12 +61,12 @@ instances =["${aws_instance.example.id}","${aws_instance.LamoMama.id}"]
 }
 
 #Breaking here?
-data "aws_internet_gateway" "default" {
- filter {
-  name  = "attachment.vpc-id"
-  values = ["${"aws_vpc.vpc.id"}"]
- }
-}
+#data "aws_internet_gateway" "default" {
+# filter {
+#  name  = "attachment.vpc-id"
+#  values = ["${"aws_vpc.vpc.id"}"]
+# }
+#}
 
 resource "aws_internet_gateway" "igw" {
  vpc_id = "${aws_vpc.vpc.id}"
@@ -76,7 +76,7 @@ resource "aws_subnet" "subnet_public" {
  vpc_id = "${aws_vpc.vpc.id}"
  cidr_block = "10.0.0.0/16"
  map_public_ip_on_launch = "true"
- availability_zone = "$(var.availability_zone)"
+ availability_zone = "us-east-1a"
 }
 
 resource "aws_route_table" "rtb_public" {
