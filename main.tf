@@ -43,6 +43,7 @@ resource "aws_instance" "example" {
  vpc_security_group_ids = [aws_security_group.web_rules.id,aws_security_group.ssh_rules.id]
  key_name = "deployer-key"
   subnet_id=aws_subnet.subnet_public.id
+  depends_on=[aws_internet_gateway.igw]
  }
 resource "aws_instance" "LamoMama" {
  ami      = "ami-0a7f1556c36aaf776"
@@ -50,6 +51,7 @@ resource "aws_instance" "LamoMama" {
  vpc_security_group_ids = [aws_security_group.ssh_rules.id,aws_security_group.web_rules.id]
 key_name = "deployer-key"
   subnet_id=aws_subnet.subnet_public.id
+  depends_on=[aws_internet_gateway.igw]
 }
 resource "aws_security_group" "web_rules" {
  name = "websg"
