@@ -79,17 +79,17 @@ resource "aws_security_group" "ssh_rules" {
   cidr_blocks = ["0.0.0.0/0"]
  }
 }
-#resource "aws_elb" "elb-YoMama" {
- #name = "elb-YoMama"
- #availability_zones = ["us-east-1a","us-east-1b"]
- #listener {
-  #instance_port   =80
-  #instance_protocol ="http"
-  #lb_port      =80
-  #lb_protocol    ="http"
- #}
+resource "aws_elb" "elb-YoMama" {
+ name = "elb-YoMama"
+ availability_zones = ["us-east-1a","us-east-1b"]
+ listener {
+  instance_port   =80
+  instance_protocol ="http"
+  lb_port      =80
+  lb_protocol    ="http"
+ }
 #instances =["${aws_instance.example.id}","${aws_instance.LamoMama.id}"]
-#}
+}
 
 #Breaking here?
 #data "aws_internet_gateway" "default" {
