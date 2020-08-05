@@ -1,6 +1,187 @@
 provider "aws" {
  region = "us-east-1"
 }
+
+module "default_label" {
+  source      = "git::https://github.com/cloudposse/terraform-null-label.git?ref=tags/0.16.0"
+  attributes  = var.attributes
+  delimiter   = var.delimiter
+  name        = var.name
+  namespace   = var.namespace
+  stage       = var.stage
+  environment = var.environment
+  tags        = var.tags
+}
+
+#resource "aws_security_group_rule" "egress" {
+ # type              = "egress"
+ #from_port         = "0"
+  #to_port           = "0"
+  #protocol          = "-1"
+  #cidr_blocks       = ["0.0.0.0/0"]
+  #security_group_id = aws_security_group.default.id
+#}
+
+#resource "aws_security_group_rule" "http_ingress" {
+  #count             = var.http_enabled ? 1 : 0
+  #type              = "ingress"
+  #from_port         = var.http_port
+  #to_port           = var.http_port
+  #protocol          = "tcp"
+  #cidr_blocks       = var.http_ingress_cidr_blocks
+  #prefix_list_ids   = var.http_ingress_prefix_list_ids
+  #security_group_id = aws_security_group.default.id
+#}
+
+#resource "aws_security_group_rule" "https_ingress" {
+  #count             = var.https_enabled ? 1 : 0
+  #type              = "ingress"
+  #from_port         = var.https_port
+  #to_port           = var.https_port
+  #protocol          = "tcp"
+  #cidr_blocks       = var.https_ingress_cidr_blocks
+  #prefix_list_ids   = var.https_ingress_prefix_list_ids
+  #security_group_id = aws_security_group.default.id
+#}
+
+module "access_logs" {
+  source                             = "git::https://github.com/cloudposse/terraform-aws-lb-s3-bucket.git?ref=tags/0.4.0"
+  enabled                            = var.access_logs_enabled
+  name                               = var.name
+  namespace                          = var.namespace
+  stage                              = var.stage
+  environment                        = var.environment
+  attributes                         = compact(concat(var.attributes, ["alb", "access", "logs"]))
+  delimiter                          = var.delimiter
+  tags                               = var.tags
+  region                             = var.access_logs_region
+  lifecycle_rule_enabled             = var.lifecycle_rule_enabled
+  enable_glacier_transition          = var.enable_glacier_transition
+  expiration_days                    = var.expiration_days
+  glacier_transition_days            = var.glacier_transition_days
+  noncurrent_version_expiration_days = var.noncurrent_version_expiration_days
+  noncurrent_version_transition_days = var.noncurrent_version_transition_days
+  standard_transition_days           = var.standard_transition_days
+  force_destroy                      = var.alb_access_logs_s3_bucket_force_destroy
+}
+
+resource "aws_lb" "default" {
+  name               = module.default_label.id
+  tags               = module.default_label.tags
+  internal           = var.internal
+  load_balancer_type = "application"
+
+  #security_groups = compact(
+    #concat(var.security_group_ids, [aws_security_group.default.id]),
+ #)
+
+  subnets                          = [aws_subnet.subnet_public_a.id,aws_subnet.subnet_public_b.id] #var.subnet_ids
+  enable_cross_zone_load_balancing = var.cross_zone_load_balancing_enabled
+  enable_http2                     = var.http2_enabled
+  idle_timeout                     = var.idle_timeout
+  ip_address_type                  = var.ip_address_type
+  enable_deletion_protection       = var.deletion_protection_enabled
+
+  access_logs {
+    bucket  = module.access_logs.bucket_id
+    prefix  = var.access_logs_prefix
+    enabled = var.access_logs_enabled
+  }
+}
+
+module "default_target_group_label" {
+  source      = "git::https://github.com/cloudposse/terraform-null-label.git?ref=tags/0.16.0"
+  attributes  = concat(var.attributes, ["default"])
+  delimiter   = var.delimiter
+  name        = var.name
+  namespace   = var.namespace
+  stage       = var.stage
+  environment = var.environment
+  tags        = var.tags
+}
+
+resource "aws_lb_target_group" "default" {
+  name                 = var.target_group_name == "" ? module.default_target_group_label.id : var.target_group_name
+  port                 = var.target_group_port
+  protocol             = var.target_group_protocol
+  vpc_id               = aws_vpc.vpc.id
+  target_type          = var.target_group_target_type
+  deregistration_delay = var.deregistration_delay
+
+  health_check {
+    protocol            = var.target_group_protocol
+    path                = var.health_check_path
+    timeout             = var.health_check_timeout
+    healthy_threshold   = var.health_check_healthy_threshold
+    unhealthy_threshold = var.health_check_unhealthy_threshold
+    interval            = var.health_check_interval
+    matcher             = var.health_check_matcher
+  }
+
+  dynamic "stickiness" {
+    for_each = var.stickiness == null ? [] : [var.stickiness]
+    content {
+      type            = "lb_cookie"
+      cookie_duration = stickiness.value.cookie_duration
+      enabled         = var.target_group_protocol == "TCP" ? false : stickiness.value.enabled
+    }
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = merge(
+    module.default_target_group_label.tags,
+    var.target_group_additional_tags
+  )
+}
+
+resource "aws_lb_listener" "http_forward" {
+  count             = var.http_enabled && var.http_redirect != true ? 1 : 0
+  load_balancer_arn = aws_lb.default.arn
+  port              = var.http_port
+  protocol          = "HTTP"
+
+  default_action {
+    target_group_arn = aws_lb_target_group.default.arn
+    type             = "forward"
+  }
+}
+
+resource "aws_lb_listener" "http_redirect" {
+  count             = var.http_enabled && var.http_redirect == true ? 1 : 0
+  load_balancer_arn = aws_lb.default.arn
+  port              = var.http_port
+  protocol          = "HTTP"
+
+  default_action {
+    target_group_arn = aws_lb_target_group.default.arn
+    type             = "redirect"
+
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+resource "aws_lb_listener" "https" {
+  count             = var.https_enabled ? 1 : 0
+  load_balancer_arn = aws_lb.default.arn
+
+  port            = var.https_port
+  protocol        = "HTTPS"
+  ssl_policy      = var.https_ssl_policy
+  certificate_arn = var.certificate_arn
+
+  default_action {
+    target_group_arn = aws_lb_target_group.default.arn
+    type             = "forward"
+  }
+}
+
 resource "aws_vpc" "vpc" {
  cidr_block = "10.0.0.0/16"
  enable_dns_support  = true
@@ -10,52 +191,44 @@ resource "aws_vpc" "vpc" {
  }
 }
 resource "aws_internet_gateway" "igw" {
- vpc_id = "${aws_vpc.vpc.id}"
+ vpc_id = aws_vpc.vpc.id
 }
 
-resource "aws_subnet" "subnet_public" {
- vpc_id = "${aws_vpc.vpc.id}"
- cidr_block = "10.0.0.0/16"
+resource "aws_subnet" "subnet_public_a" {
+ vpc_id = aws_vpc.vpc.id
+ cidr_block = "10.0.1.0/24"
  map_public_ip_on_launch = "true"
  availability_zone = "us-east-1a"
 }
 
+resource "aws_subnet" "subnet_public_b" {
+ vpc_id = aws_vpc.vpc.id
+ cidr_block = "10.0.2.0/24"
+ map_public_ip_on_launch = "true"
+ availability_zone = "us-east-1b"
+}
+
 resource "aws_route_table" "rtb_public" {
- vpc_id = "${aws_vpc.vpc.id}"
+ vpc_id = aws_vpc.vpc.id
 route {
    cidr_block = "0.0.0.0/0"
-   gateway_id = "${aws_internet_gateway.igw.id}"
+   gateway_id = aws_internet_gateway.igw.id
  }
 }
 
-resource "aws_route_table_association" "rta_subnet_public" {
- subnet_id   = "${aws_subnet.subnet_public.id}"
- route_table_id = "${aws_route_table.rtb_public.id}"
+resource "aws_route_table_association" "rta_subnet_public_a" {
+ subnet_id   = aws_subnet.subnet_public_a.id
+ route_table_id = aws_route_table.rtb_public.id
 }
 
-#resource "aws_key_pair" "deployer" {
-# key_name  = "deployer-key"
-# public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC9+sRnqO1shgNfMdnWy/usEjE/Y794EnAQXbX2NJNWEw/F5YlWYM/LqjIIUvkNb6f9UyD4uUV8zu8Z3ss/Y3iugCN3Jp1PycUE2wg8Mco6rNXaJXjJS982/TsdP8JZ7M6Pj327aiG1eqjZeCmc89/eBHmWkxjbQkOOpanCnO13r5ohm8cumkA/J+WgdGdLmf2W2CjjdoAKw2HvuuzI1ebr4w6QF2mmGukrNrlXX4ENOLGV+0RZ1nnEgT0kjAqcDDQYnURYrBNGLLpPzjO6kW8o+XxTPwEr9wPePD1DRXGoY8j5cnpVwYbMupJ6N2HNVyZaIzJ606bPph3enQy1+dxT monicamichael@Monicas-Air"
-#}
-resource "aws_instance" "example" {
- ami      = "ami-0a7f1556c36aaf776"
- instance_type = "t2.micro"
- vpc_security_group_ids = [aws_security_group.web_rules.id,aws_security_group.ssh_rules.id]
- key_name = "deployer-key"
-  subnet_id=aws_subnet.subnet_public.id
-  depends_on=[aws_internet_gateway.igw]
- }
-resource "aws_instance" "LamoMama" {
- ami      = "ami-0a7f1556c36aaf776"
- instance_type = "t2.micro"
- vpc_security_group_ids = [aws_security_group.ssh_rules.id,aws_security_group.web_rules.id]
-key_name = "deployer-key"
-  subnet_id=aws_subnet.subnet_public.id
-  depends_on=[aws_internet_gateway.igw]
+resource "aws_route_table_association" "rta_subnet_public_b" {
+ subnet_id   = aws_subnet.subnet_public_b.id
+ route_table_id = aws_route_table.rtb_public.id
 }
+
 resource "aws_security_group" "web_rules" {
  name = "websg"
-  vpc_id="${aws_vpc.vpc.id}"
+  vpc_id=aws_vpc.vpc.id
  egress {
   to_port=0
   protocol=-1
@@ -71,7 +244,7 @@ resource "aws_security_group" "web_rules" {
 }
 resource "aws_security_group" "ssh_rules" {
  name = "sshsg"
-  vpc_id="${aws_vpc.vpc.id}"
+  vpc_id=aws_vpc.vpc.id
  ingress {
   from_port  = 22
   to_port   = 22
@@ -79,23 +252,23 @@ resource "aws_security_group" "ssh_rules" {
   cidr_blocks = ["0.0.0.0/0"]
  }
 }
-resource "aws_elb" "elb-YoMama" {
- name = "elb-YoMama"
- availability_zones = ["us-east-1a","us-east-1b"]
- listener {
-  instance_port   =80
-  instance_protocol ="http"
-  lb_port      =80
-  lb_protocol    ="http"
+
+
+resource "aws_instance" "example" {
+  ami      = "ami-0a7f1556c36aaf776"
+  instance_type = "t2.micro"
+  vpc_security_group_ids = [aws_security_group.web_rules.id,aws_security_group.ssh_rules.id]
+  key_name = "deployer-key"
+  depends_on=[aws_internet_gateway.igw]
+  subnet_id=aws_subnet.subnet_public_a.id
  }
-#instances =["${aws_instance.example.id}","${aws_instance.LamoMama.id}"]
+
+
+resource "aws_instance" "LamoMama" {
+ ami      = "ami-0a7f1556c36aaf776"
+ instance_type = "t2.micro"
+ vpc_security_group_ids = [aws_security_group.ssh_rules.id,aws_security_group.web_rules.id]
+  key_name = "deployer-key"
+  depends_on=[aws_internet_gateway.igw]
+  subnet_id=aws_subnet.subnet_public_b.id
 }
-
-#Breaking here?
-#data "aws_internet_gateway" "default" {
-# filter {
-#  name  = "attachment.vpc-id"
-#  values = ["${"aws_vpc.vpc.id"}"]
-# }
-#}
-
