@@ -71,6 +71,8 @@ resource "aws_lb" "default" {
   internal           = var.internal
   load_balancer_type = "application"
 
+  security_groups = [aws_security_group.web_rules.id]
+
   #security_groups = compact(
     #concat(var.security_group_ids, [aws_security_group.default.id]),
  #)
@@ -135,6 +137,18 @@ resource "aws_lb_target_group" "default" {
     module.default_target_group_label.tags,
     var.target_group_additional_tags
   )
+}
+
+resource "aws_lb_target_group_attachment" "LamoMama" {
+  target_group_arn = aws_lb_target_group.default.arn
+  target_id = aws_instance.LamoMama.private_ip
+  port = 80
+}
+
+resource "aws_lb_target_group_attachment" "example" {
+  target_group_arn = aws_lb_target_group.default.arn
+  target_id = aws_instance.example.private_ip
+  port = 80
 }
 
 resource "aws_lb_listener" "http_forward" {
