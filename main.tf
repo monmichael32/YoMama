@@ -286,3 +286,10 @@ resource "aws_instance" "LamoMama" {
   depends_on=[aws_internet_gateway.igw]
   subnet_id=aws_subnet.subnet_public_b.id
 }
+#resource "aws_route53_record" "cname_route53_record" {
+  #zone_id = "${aws_route53_zone.primary.zone_id}" # Replace with your zone ID
+  #name    = "www.example.com" # Replace with your subdomain, Note: not valid with "apex" domains, e.g. example.com
+  #type    = "CNAME"
+  #ttl     = "60"
+  #records = ["${aws_lb.MYALB.dns_name}"]
+#}
